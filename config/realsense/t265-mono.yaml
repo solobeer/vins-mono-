@@ -1,8 +1,9 @@
 %YAML:1.0
 
 #common parameters
-#imu_topic: "/t265/imu"
+# imu_topic: "/t265/imu"
 imu_topic: "/camera/imu"
+# imu_topic: "/livox/imu"
 image_topic: "/camera/fisheye1/image_raw"
 #image_topic: "/fisheye1"
 output_path: "~/vins-mono/output"
@@ -37,6 +38,10 @@ extrinsicRotation: !!opencv-matrix
            0.00243755,  -0.999997,  0.000420199, 
            0.00382417,  0.000429518,  0.999993]
  
+   #livox
+   # data: [0.0000000, -1.0000000,  0.0000000,
+   #       0.0000000,  0.0000000, -1.0000000,
+   #       1.0000000,  0.0000000,  0.0000000]
 #Translation from camera frame to imu frame, imu^T_cam
 extrinsicTranslation: !!opencv-matrix
    rows: 3
@@ -45,9 +50,9 @@ extrinsicTranslation: !!opencv-matrix
    data: [0.0106998905539513, -2.60817905655131e-05, -4.09185959142633e-05]
 
 #feature traker paprameters
-max_cnt: 120            # max feature number in feature tracking
+max_cnt: 128            # max feature number in feature tracking
 min_dist: 30            # min distance between two features 
-freq: 10                # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image 
+freq: 15                # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image 
 F_threshold: 1.0        # ransac threshold (pixel)
 show_track: 1           # publish tracking image as topic
 equalize: 1             # if image is too dark or light, trun on equalize to find enough features

@@ -16,6 +16,10 @@
 #include "parameters.h"
 #include "tic_toc.h"
 
+// #include <python3.6m/Python.h>
+// #include <numpy/arrayobject.h>
+// #include <torch/script.h>
+
 using namespace std;
 using namespace camodocal;
 using namespace Eigen;
@@ -45,6 +49,8 @@ class FeatureTracker
     void rejectWithF();
 
     void undistortedPoints();
+
+    // PyObject* matToNumpy(const cv::Mat &mat);
 
     cv::Mat mask;
     cv::Mat fisheye_mask;

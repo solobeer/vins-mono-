@@ -101,26 +101,31 @@ getMeasurements()
     std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
 
     while (true)
-    {
+    {    //把一个视觉帧和之前的一串IMU帧的数据配对起来
+        //边界判断：数据取完了，说明配对完成
         if (imu_buf.empty() || feature_buf.empty())
             return measurements;
 
+        //边界判断：IMU buf里面所有数据的时间戳都比img buf第一个帧时间戳要早，说明缺乏IMU数据，需要等待IMU数据
         if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
             //ROS_WARN("wait for imu, only should happen at the beginning");
-            sum_of_wait++;
+            sum_of_wait++; //统计等待的次数
             return measurements;
         }
 
+        //边界判断：IMU第一个数据的时间要大于第一个图像特征数据的时间(说明图像帧有多的)
         if (!(imu_buf.front()->header.stamp.toSec() < feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
             ROS_WARN("throw img, only should happen at the beginning");
             feature_buf.pop();
             continue;
         }
+
+        //核心操作：装入视觉帧信息
         sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
         feature_buf.pop();
-
+        //核心操作：转入IMU信息
         std::vector<sensor_msgs::ImuConstPtr> IMUs;
         while (imu_buf.front()->header.stamp.toSec() < img_msg->header.stamp.toSec() + estimator.td)
         {
@@ -143,9 +148,14 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
         return;
     }
     last_imu_t = imu_msg->header.stamp.toSec();
-
+    // sensor_msgs::ImuPtr imu_msg_ptr(new sensor_msgs::Imu(*imu_msg));
+    // imu_msg_ptr->linear_acceleration.x *= 9.805;
+    // imu_msg_ptr->linear_acceleration.y *= 9.805;
+    // imu_msg_ptr->linear_acceleration.z *= 9.805;
     m_buf.lock();
     imu_buf.push(imu_msg);
+    //livox
+    // imu_buf.push(imu_msg_ptr);
     m_buf.unlock();
     con.notify_one();
 
@@ -225,7 +235,8 @@ void process()
             for (auto &imu_msg : measurement.first)
             {
                 double t = imu_msg->header.stamp.toSec();
-                double img_t = img_msg->header.stamp.toSec() + estimator.td;
+                double img_t = img_msg->header.stamp.toSec() + estimator.td; //相机和IMU同步校准得到的时间差
+                //对于大多数情况，IMU的时间戳都会比img的早，此时直接选取IMU的数据就行
                 if (t <= img_t)
                 { 
                     if (current_time < 0)
@@ -239,11 +250,12 @@ void process()
                     rx = imu_msg->angular_velocity.x;
                     ry = imu_msg->angular_velocity.y;
                     rz = imu_msg->angular_velocity.z;
+                    //这里干了2件事，IMU粗略地预积分，然后把值传给一个新建的IntegrationBase对象
                     estimator.processIMU(dt, Vector3d(dx, dy, dz), Vector3d(rx, ry, rz));
                     //printf("imu: dt:%f a: %f %f %f w: %f %f %f\n",dt, dx, dy, dz, rx, ry, rz);
 
-                }
-                else
+                } //对于处于边界位置的IMU数据，是被相邻两帧共享的，而且对前一帧的影响会大一些，在这里，对数据线性分配
+                else//每个大于图像帧时间戳的第一个imu_msg是被两个图像帧共用的(出现次数少)
                 {
                     double dt_1 = img_t - current_time;
                     double dt_2 = t - img_t;
@@ -251,6 +263,7 @@ void process()
                     ROS_ASSERT(dt_1 >= 0);
                     ROS_ASSERT(dt_2 >= 0);
                     ROS_ASSERT(dt_1 + dt_2 > 0);
+                    //以下操作其实就是简单的线性分配
                     double w1 = dt_2 / (dt_1 + dt_2);
                     double w2 = dt_1 / (dt_1 + dt_2);
                     dx = w1 * dx + w2 * imu_msg->linear_acceleration.x;
@@ -293,23 +306,34 @@ void process()
             ROS_INFO("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
             TicToc t_s;
+            //数据结构: map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image
+            // 1、虽然它叫image，但是这个容器里面存放的信息是每一个特征点的！
+            // 2、索引值是feature_id；
+            // 3、value值是一个vector，如果系统是多目的，那么同一个特征点在不同摄像头下会有不同的观测信息，
+            // 那么这个vector，就是存储着某个特征点在所有摄像头上的信息。对于VINS-mono来说，value它不是vector，
+            // 仅仅是一个pair，其实是可以的。
+            // 4、接下来看这个vector里面的每一pair。int对应的是camera_id，告诉我们这些数据是当前特征点在哪个摄像头上获得的。
+            // 5、Matrix<double, 7, 1>是一个7维向量，依次存放着当前feature_id的特征点在camera_id的相机中的归一化坐标，
+            // 像素坐标和像素运动速度，这些信息都是在feature_tracker_node.cpp中获得的。   
+
             map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
-                int v = img_msg->channels[0].values[i] + 0.5;
-                int feature_id = v / NUM_OF_CAM;
+                int v = img_msg->channels[0].values[i] + 0.5;//channels[0].values[i]==id_of_point
+                int feature_id = v / NUM_OF_CAM; //多相机才用到
                 int camera_id = v % NUM_OF_CAM;
                 double x = img_msg->points[i].x;
                 double y = img_msg->points[i].y;
                 double z = img_msg->points[i].z;
-                double p_u = img_msg->channels[1].values[i];
-                double p_v = img_msg->channels[2].values[i];
-                double velocity_x = img_msg->channels[3].values[i];
-                double velocity_y = img_msg->channels[4].values[i];
+                double p_u = img_msg->channels[1].values[i];//像素坐标u
+                double p_v = img_msg->channels[2].values[i];//像素坐标v
+                double velocity_x = img_msg->channels[3].values[i];//像素速度x
+                double velocity_y = img_msg->channels[4].values[i];//像素速度y
                 ROS_ASSERT(z == 1);
                 Eigen::Matrix<double, 7, 1> xyz_uv_velocity;
                 xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
-                image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
+                //一个id的点有归一化平面坐标\像素坐标\像素移动速度
+                image[feature_id].emplace_back(camera_id,  xyz_uv_velocity); 
             }
             estimator.processImage(image, img_msg->header);
 

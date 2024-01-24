@@ -25,6 +25,8 @@ bool first_image_flag = true;
 double last_image_time = 0;
 bool init_pub = 0;
 
+// PyObject* pLightGlue;
+
 void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 {
     if(first_image_flag)
@@ -175,28 +177,36 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
             {
                 cv::Mat tmp_img = stereo_img.rowRange(i * ROW, (i + 1) * ROW);
                 cv::cvtColor(show_img, tmp_img, CV_GRAY2RGB);
-
-                for (unsigned int j = 0; j < trackerData[i].cur_pts.size(); j++)
-                {
-                    double len = std::min(1.0, 1.0 * trackerData[i].track_cnt[j] / WINDOW_SIZE);
-                    cv::circle(tmp_img, trackerData[i].cur_pts[j], 2, cv::Scalar(255 * (1 - len), 0, 255 * len), 2);
-                    cv::putText(tmp_img, std::to_string(trackerData[i].ids[j]), trackerData[i].cur_pts[j],
-                                    cv::FONT_HERSHEY_COMPLEX, 0.2, cv::Scalar(255, 255, 255));
-                    //draw speed line
-                    /*
-                    Vector2d tmp_cur_un_pts (trackerData[i].cur_un_pts[j].x, trackerData[i].cur_un_pts[j].y);
-                    Vector2d tmp_pts_velocity (trackerData[i].pts_velocity[j].x, trackerData[i].pts_velocity[j].y);
-                    Vector3d tmp_prev_un_pts;
-                    tmp_prev_un_pts.head(2) = tmp_cur_un_pts - 0.10 * tmp_pts_velocity;
-                    tmp_prev_un_pts.z() = 1;
-                    Vector2d tmp_prev_uv;
-                    trackerData[i].m_camera->spaceToPlane(tmp_prev_un_pts, tmp_prev_uv);
-                    cv::line(tmp_img, trackerData[i].cur_pts[j], cv::Point2f(tmp_prev_uv.x(), tmp_prev_uv.y()), cv::Scalar(255 , 0, 0), 1 , 8, 0);
-                    */
-                    //char name[10];
-                    //sprintf(name, "%d", trackerData[i].ids[j]);
-                    //cv::putText(tmp_img, name, trackerData[i].cur_pts[j], cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0));
+                
+                for (unsigned int j = 0; j < trackerData[i].cur_pts.size(); j++) {
+                    if (trackerData[i].track_cnt[j] > 1) {
+                        double len = std::min(1.0, 1.0 * trackerData[i].track_cnt[j] / WINDOW_SIZE);
+                        cv::circle(tmp_img, trackerData[i].cur_pts[j], 2, cv::Scalar(255 * (1 - len), 0, 255 * len), 2);
+                    }
                 }
+
+                // for (unsigned int j = 0; j < trackerData[i].cur_pts.size(); j++)
+                // {
+                //     double len = std::min(1.0, 1.0 * trackerData[i].track_cnt[j] / WINDOW_SIZE);
+                //     cv::circle(tmp_img, trackerData[i].cur_pts[j], 2, cv::Scalar(255 * (1 - len), 0, 255 * len), 2);
+
+                //     // cv::putText(tmp_img, std::to_string(trackerData[i].ids[j]), trackerData[i].cur_pts[j],
+                //     //                 cv::FONT_HERSHEY_COMPLEX, 0.2, cv::Scalar(255, 255, 255));
+                //     //draw speed line
+                //     /*
+                //     Vector2d tmp_cur_un_pts (trackerData[i].cur_un_pts[j].x, trackerData[i].cur_un_pts[j].y);
+                //     Vector2d tmp_pts_velocity (trackerData[i].pts_velocity[j].x, trackerData[i].pts_velocity[j].y);
+                //     Vector3d tmp_prev_un_pts;
+                //     tmp_prev_un_pts.head(2) = tmp_cur_un_pts - 0.10 * tmp_pts_velocity;
+                //     tmp_prev_un_pts.z() = 1;
+                //     Vector2d tmp_prev_uv;
+                //     trackerData[i].m_camera->spaceToPlane(tmp_prev_un_pts, tmp_prev_uv);
+                //     cv::line(tmp_img, trackerData[i].cur_pts[j], cv::Point2f(tmp_prev_uv.x(), tmp_prev_uv.y()), cv::Scalar(255 , 0, 0), 1 , 8, 0);
+                //     */
+                //     //char name[10];
+                //     //sprintf(name, "%d", trackerData[i].ids[j]);
+                //     //cv::putText(tmp_img, name, trackerData[i].cur_pts[j], cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0));
+                // }
             }
             //cv::imshow("vis", stereo_img);
             //cv::waitKey(5);
@@ -208,6 +218,20 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 
 int main(int argc, char **argv)
 {
+    // Py_Initialize();
+    // if (!Py_IsInitialized())
+    // {
+    //     std::cout << "python failed to init !" << std::endl;
+    // }
+    // PyRun_SimpleString("import sys");
+    // PyRun_SimpleString("sys.path.append('/home/hzb/project/python/image_match/LightGlue')");
+    // PyObject* pModule = PyImport_ImportModule("LightGlueForwd");
+    // PyObject* pDict = PyModule_GetDict(pModule);
+    // PyObject* pImageMatch = PyDict_GetItemString(pDict, "ImageMatch");
+    // pLightGlue = PyObject_CallObject(pImageMatch, nullptr);
+    // if (pModule == nullptr) {
+    //     std::cout << "import LightGlueForwd failed" << std::endl;
+    // }
     ros::init(argc, argv, "feature_tracker");
     ros::NodeHandle n("~");
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);

@@ -1,7 +1,7 @@
 #include "feature_tracker.h"
 
 int FeatureTracker::n_id = 0;
-
+extern PyObject* pLightGlue;
 bool inBorder(const cv::Point2f &pt)
 {
     const int BORDER_SIZE = 1;
@@ -31,6 +31,18 @@ void reduceVector(vector<int> &v, vector<uchar> status)
 
 FeatureTracker::FeatureTracker()
 {
+}
+
+PyObject* FeatureTracker::matToNumpy(const cv::Mat &mat){
+    int hight = mat.rows, width = mat.cols, channel = mat.channels();
+    std::cout << "channel: " << channel << std::endl;
+    int elem = hight * width * channel;
+    uchar* data = new uchar[elem];
+    std::memcpy(data, mat.data, elem *  sizeof(uchar));
+    npy_intp dims[3] = {hight, width, channel};
+    PyObject* ret = PyArray_SimpleNewFromData(channel, dims, NPY_UBYTE, (void*)data);
+    delete[] data;
+    return ret;
 }
 
 void FeatureTracker::setMask()
@@ -105,12 +117,21 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     }
 
     forw_pts.clear();
-
+    PyObject* pImg = matToNumpy(forw_img);
+    PyObject_CallMethod(pLightGlue, "match", "", pImg);
     if (cur_pts.size() > 0)
     {
         TicToc t_o;
         vector<uchar> status;
         vector<float> err;
+        PyObject* res_status = PyObject_CallMethod(pLightGlue, "getstatus", "");
+        PyObject* res_forw_Pts = PyObject_CallMethod(pLightGlue, "getmatchpoints", "");
+        torch::Tensor tensor_status = torch::jit::IValue(res_status).toTensor().to(torch::kCPU);
+        status.resize(MAX_CNT);
+        for(int i = 0; i < tensor_status.size(0); i++) {
+            status[i] = tensor_status[i].item<int>();
+        }
+  
         cv::calcOpticalFlowPyrLK(cur_img, forw_img, cur_pts, forw_pts, status, err, cv::Size(21, 21), 3);
 
         for (int i = 0; i < int(forw_pts.size()); i++)
@@ -147,6 +168,7 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
                 cout << "mask type wrong " << endl;
             if (mask.size() != forw_img.size())
                 cout << "wrong size " << endl;
+
             cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);
         }
         else
@@ -265,7 +287,7 @@ void FeatureTracker::undistortedPoints()
     {
         Eigen::Vector2d a(cur_pts[i].x, cur_pts[i].y);
         Eigen::Vector3d b;
-        m_camera->liftProjective(a, b);//b为无畸变的归一化坐标
+        m_camera->liftProjective(a, b);
         cur_un_pts.push_back(cv::Point2f(b.x() / b.z(), b.y() / b.z()));
         cur_un_pts_map.insert(make_pair(ids[i], cv::Point2f(b.x() / b.z(), b.y() / b.z())));
         //printf("cur pts id %d %f %f", ids[i], cur_un_pts[i].x, cur_un_pts[i].y);

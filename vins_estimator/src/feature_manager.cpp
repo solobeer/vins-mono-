@@ -25,6 +25,7 @@ void FeatureManager::clearState()
     feature.clear();
 }
 
+// 用于计算当前已使用的特征点的数量，
 int FeatureManager::getFeatureCount()
 {
     int cnt = 0;
@@ -41,41 +42,47 @@ int FeatureManager::getFeatureCount()
     return cnt;
 }
 
-
+//关键帧判断
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
     ROS_DEBUG("input feature: %d", (int)image.size());
     ROS_DEBUG("num of feature: %d", getFeatureCount());
+    //总平行度
     double parallax_sum = 0;
+     //平行特征点数
     int parallax_num = 0;
+    //统计在滑窗中的特征点有多少个在当前帧中继续被追踪到了
     last_track_num = 0;
+    //遍历当前帧的每一个特征点
     for (auto &id_pts : image)
     {
+        //把当前特征点封装成一个FeaturePerFrame对象
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
 
         int feature_id = id_pts.first;
+        //在滑窗的所有特征点中，看看能不能找到当前这个特征点
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
                           });
-
+        //如果这个特征点是一个新的特征(在特征点库里没有找到),那么就把它加入到滑窗的特征点库里
         if (it == feature.end())
         {
             feature.push_back(FeaturePerId(feature_id, frame_count));
             feature.back().feature_per_frame.push_back(f_per_fra);
-        }
+        }  //如果这个特征在滑窗中已经被观测到过，那么就补充上这个特征点在当前帧的数据，并且把共视点统计数+1
         else if (it->feature_id == feature_id)
         {
             it->feature_per_frame.push_back(f_per_fra);
             last_track_num++;
         }
     }
-
+    //如果总共2帧，或者说共视点<20，那么说明次新帧是关键帧，marg_old
     if (frame_count < 2 || last_track_num < 20)
         return true;
-
+    //遍历滑窗中的每一个特征点
     for (auto &it_per_id : feature)
-    {
+    {//如果当前特征点在当前帧-2以前出现过而且至少在当前帧-1还在，那么他就是平行特征点
         if (it_per_id.start_frame <= frame_count - 2 &&
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
         {
@@ -183,6 +190,7 @@ void FeatureManager::clearDepth(const VectorXd &x)
     }
 }
 
+//返回FeatureManager内的特征点逆深度数组
 VectorXd FeatureManager::getDepthVector()
 {
     VectorXd dep_vec(getFeatureCount());
@@ -201,14 +209,16 @@ VectorXd FeatureManager::getDepthVector()
     return dep_vec;
 }
 
-void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
+void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])//传入外参
 {
     for (auto &it_per_id : feature)
     {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
+        //在两帧中出现，开始帧在窗口大小范围内，才继续往下
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
 
+        // 如果估计深度大于 0，则跳过该特征点。
         if (it_per_id.estimated_depth > 0)
             continue;
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
@@ -242,6 +252,7 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
                 continue;
         }
         ROS_ASSERT(svd_idx == svd_A.rows());
+        // 使用奇异值分解（SVD）计算特征点的深度。
         Eigen::Vector4d svd_V = Eigen::JacobiSVD<Eigen::MatrixXd>(svd_A, Eigen::ComputeThinV).matrixV().rightCols<1>();
         double svd_method = svd_V[2] / svd_V[3];
         //it_per_id->estimated_depth = -b / A;
@@ -250,6 +261,7 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         it_per_id.estimated_depth = svd_method;
         //it_per_id->estimated_depth = INIT_DEPTH;
 
+        // 如果深度小于 0.1，则使用初始深度替代。
         if (it_per_id.estimated_depth < 0.1)
         {
             it_per_id.estimated_depth = INIT_DEPTH;
@@ -358,6 +370,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
 {
     //check the second last frame is keyframe or not
     //parallax betwwen seconde last frame and third last frame
+    //计算该特征点在倒数第二帧和倒数第三帧之间的视差
     const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
     const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
 
